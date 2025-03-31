@@ -1,0 +1,113 @@
+import cv2
+import numpy as np
+import networkx as nx
+import matplotlib.pyplot as plt
+
+def load_maze(image_path):
+    maze = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    bnr_maze = (maze > 128).astype(np.uint8)  #(1 = free, 0 = obstacle)
+    return bnr_maze
+
+
+def sample_point(bnr_maze, num_samples=200):
+    free_points = np.argwhere(bnr_maze == 1) 
+    index = np.random.choice(len(free_points), num_samples, replace=False)
+    return [tuple(free_points[i]) for i in index]  
+
+
+def prm(sampled_points, bnr_maze, k_neighbors=10):
+    graph = nx.Graph()
+    for i, point in enumerate(sampled_points):
+        graph.add_node(i, pos=point)
+
+    for i, p1 in enumerate(sampled_points):
+        distances = [(np.linalg.norm(np.array(p1) - np.array(p2)), j) 
+                     for j, p2 in enumerate(sampled_points) if i != j]
+        distances.sort()  
+        neighbors = distances[:k_neighbors]  
+
+        for _, j in neighbors:
+            p2 = sampled_points[j]
+            if is_valid_connection(bnr_maze, p1, p2):
+                graph.add_edge(i, j)
+
+    return graph
+
+def is_valid_connection(bnr_maze, p1, p2):
+    num_points = int(np.linalg.norm(np.array(p1) - np.array(p2)))
+    x_vals = np.linspace(p1[0], p2[0], num_points).astype(int)
+    y_vals = np.linspace(p1[1], p2[1], num_points).astype(int)
+    
+    return np.all(bnr_maze[x_vals, y_vals] == 1)  
+
+
+def djkstra(graph, sampled_points, start, end):
+    start_idx = np.argmin([np.linalg.norm(np.array(p) - np.array(start)) for p in sampled_points])
+    end_idx = np.argmin([np.linalg.norm(np.array(p) - np.array(end)) for p in sampled_points])
+
+    try:
+        path_index = nx.shortest_path(graph, source=start_idx, target=end_idx, weight='weight')
+        return [sampled_points[i] for i in path_index]
+    except nx.NetworkXNoPath:
+        return None  
+
+def points_select(bnr_maze):
+    fig, ax = plt.subplots()
+    ax.imshow(bnr_maze, cmap='gray')
+    plt.title("Select Start and end Points")
+
+    points = []
+
+    def onclick(event):
+        if event.xdata is not None and event.ydata is not None:
+            x, y = int(event.ydata), int(event.xdata)  
+            if bnr_maze[x, y] == 1: 
+                points.append((x, y))
+                ax.plot(y, x, "ro" if len(points) == 2 else "go", markersize=8)
+                fig.canvas.draw()
+                if len(points) == 2:  
+                    plt.close()
+
+    fig.canvas.mpl_connect('button_press_event', onclick)
+    plt.show()
+
+    return points if len(points) == 2 else None  
+
+
+def visualize_prm(bnr_maze, graph, sampled_points, path, start, end):
+    plt.imshow(bnr_maze, cmap='gray')
+    
+    
+    for edge in graph.edges:
+        p1, p2 = sampled_points[edge[0]], sampled_points[edge[1]]
+        plt.plot([p1[1], p2[1]], [p1[0], p2[0]], 'bo-', markersize=2, alpha=0.3)
+
+    plt.plot(start[1], start[0], "go", markersize=8, label="Start")
+    plt.plot(end[1], end[0], "ro", markersize=8, label="end")
+
+    if path:
+        path = np.array(path)
+        plt.plot(path[:, 1], path[:, 0], "y-", linewidth=2, label="Path")
+    
+    plt.legend()
+    plt.title("PRM Path Planning")
+    plt.show()
+
+def main():
+    bnr_maze = load_maze("maze.png")
+
+    points = points_select(bnr_maze)
+    if points is None:
+        print("Start and end selection failed. Please try again.")
+        return
+
+    start, end = points  # 
+
+    sampled_points = sample_point(bnr_maze, num_samples=200)
+    prm_graph = prm(sampled_points, bnr_maze, k_neighbors=10)
+
+    path = djkstra(prm_graph, sampled_points, start, end)
+    visualize_prm(bnr_maze, prm_graph, sampled_points, path, start, end)
+
+if __name__ == "__main__":
+    main()
